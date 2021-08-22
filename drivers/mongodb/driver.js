@@ -13,5 +13,5 @@ export async function connect(config) {
   return db;
 }
 
-export async function loadData(config, connecttion, tableName, data) {
+export async function loadData(config, connection, data) {
 }

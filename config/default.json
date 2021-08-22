@@ -1,1 +1,23 @@
-{}
+{
+  "data": {
+    "path": "./tmp/data.json",
+    "rebuild": false,
+    "save": true
+  },
+  "cardinality": {
+    "item": 100000,
+    "warehouse": 1
+  },
+  "syllables": [
+    "BAR",
+    "OUGHT",
+    "ABLE",
+    "PRI",
+    "PRES",
+    "ESE",
+    "ANTI",
+    "CALLY",
+    "ATION",
+    "EING"
+  ]
+}
