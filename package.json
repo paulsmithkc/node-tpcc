@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Node.js implementation of TPC-C benchmark",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "mongodb": "node index.js mongodb",
     "pg": "node index.js pg",
@@ -28,12 +29,14 @@
   },
   "homepage": "https://github.com/paulsmithkc/node-tpcc#readme",
   "dependencies": {
+    "config": "^3.3.6",
     "debug": "^4.3.2",
     "dotenv": "^10.0.0",
     "knex": "^0.95.10",
     "mongodb": "^4.1.0",
     "mysql": "^2.18.1",
     "mysql2": "^2.3.0",
-    "pg": "^8.7.1"
+    "pg": "^8.7.1",
+    "random": "^3.0.6"
   }
 }
