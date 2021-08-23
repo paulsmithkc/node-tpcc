@@ -200,6 +200,11 @@ await driver.doNewOrder(driverConfig, db, {
       quantity: 5,
       supplyWarehouseId: data.warehouses[0]._id,
     },
+    {
+      itemId: data.items[0]._id,
+      quantity: 60,
+      supplyWarehouseId: data.warehouses[0]._id,
+    },
   ],
 });
 logger('benchmarks finished.');

@@ -89,11 +89,8 @@ export async function doNewOrder(
   db,
   { warehouseId, districtId, customerId, lines }
 ) {
-  // const warehouses = await db.collection('warehouse').findMany({
-  //   _id: {
-  //     $in: _.uniq([warehouseId, ..._.map(lines, (x) => x.supplyWarehouseId)]),
-  //   },
-  // });
+  logger(`doNewOrder(${customerId})`);
+
   const [customer, items, stocks] = await Promise.all([
     db.collection('customer').findOne({ _id: { $eq: customerId } }),
     db
@@ -110,6 +107,7 @@ export async function doNewOrder(
   if (!customer) {
     throw new Error(`customer ${customerId} not found.`);
   }
+  // TODO: handle orders from another district (2.4.1.2)
   if (customer.warehouse._id != warehouseId) {
     throw new Error('customer is not in this warehouse.');
   }
@@ -117,11 +115,11 @@ export async function doNewOrder(
     throw new Error('customer is not in this district.');
   }
 
-  logger('customerId', customerId);
-  logger('items', items.length);
-  logger('items[0]', items[0]);
-  logger('stocks', stocks.length);
-  logger('stocks[0]', stocks[0]);
+  // logger('customerId', customerId);
+  // logger('items', items.length);
+  // logger('items[0]', items[0]);
+  // logger('stocks', stocks.length);
+  // logger('stocks[0]', stocks[0]);
 
   const order = {
     _id: randId(),
@@ -184,10 +182,31 @@ export async function doNewOrder(
   totalAmount *= 1 + customer.warehouse.tax + customer.district.tax;
   logger('totalAmount', totalAmount);
 
-  await db
-    .collection('customer')
-    .updateOne({ _id: { $eq: customerId } }, { $push: { orders: order } });
-  await db.collection('stock').bulkWrite(stockUpdates);
+  await Promise.all([
+    db.collection('customer').updateOne(
+      {
+        _id: { $eq: customerId },
+      },
+      {
+        $push: { orders: order },
+      }
+    ),
+    db.collection('stock').bulkWrite(stockUpdates),
+  ]);
 
+  logger('doNewOrder.');
   return { totalAmount };
+}
+
+export async function doPayment(
+  config,
+  db,
+  { warehouseId, districtId, customer, amount }
+) {
+  logger('doPayment()');
+  logger('customer', customer);
+
+  // TODO: implement payment
+
+  logger('doPayment.');
 }
