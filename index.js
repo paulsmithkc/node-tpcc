@@ -26,28 +26,12 @@ const driverName = process.argv[2];
 logger(`env = "${envName}"`);
 logger(`driver = "${driverName}"`);
 
-// dynamically load driver module
-const driver = await import(`./drivers/${driverName}/driver.js`);
-logger('driver loaded.');
-
-// load driver config
-const driverConfig = JSON.parse(
-  fs.readFileSync(`./drivers/${driverName}/config.json`, 'utf8')
-);
-logger('driver config loaded.');
-
-// connect to the database
-const driverConnection = await driver.connect(driverConfig);
-logger('driver connected.');
-
-// load data
+// generate data
 const dataPath = config.get('data.path');
 let data;
 if (!config.get('data.rebuild')) {
   try {
-    data = JSON.parse(
-      fs.readFileSync(dataPath, 'utf8')
-    );
+    data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
     logger('data read from cache.');
   } catch (err) {
     debug(err);
@@ -58,7 +42,7 @@ if (!data) {
   data = { items: [], warehouses: [] };
   for (let i = 0; i < cardinality.item; ++i) {
     const item = {
-      id: randId(),
+      _id: randId(),
       imageId: randId(),
       name: randAlphaString(14, 24),
       price: randNumber(1, 100, 0.01),
@@ -68,7 +52,7 @@ if (!data) {
   }
   for (let w = 0; w < cardinality.warehouse; ++w) {
     const warehouse = {
-      id: randId(),
+      _id: randId(),
       name: randAlphaString(6, 10),
       street1: randAlphaString(10, 20),
       street2: randAlphaString(10, 20),
@@ -78,12 +62,12 @@ if (!data) {
       tax: randNumber(0.0, 0.2, 0.0001),
       ytd: 300_000,
       districts: [],
-      stock: [],
+      stocks: [],
     };
     data.warehouses.push(warehouse);
     for (let d = 0; d < 10; ++d) {
       const district = {
-        id: randId(),
+        _id: randId(),
         name: randAlphaString(6, 10),
         street1: randAlphaString(10, 20),
         street2: randAlphaString(10, 20),
@@ -99,7 +83,7 @@ if (!data) {
       warehouse.districts.push(district);
       for (let c = 0; c < 3000; ++c) {
         const customer = {
-          id: randId(),
+          _id: randId(),
           first: randAlphaString(8, 16),
           middle: 'OE',
           last: randLastName(c),
@@ -133,7 +117,7 @@ if (!data) {
       for (let o = 0; o < 3000; ++o) {
         const customer = shuffledCustomers[o];
         const order = {
-          id: randId(),
+          _id: randId(),
           entryDate: new Date(),
           carrier: o < 2101 ? randInt(1, 10) : null,
           allLocal: true,
@@ -144,9 +128,9 @@ if (!data) {
         for (let i = 0; i < lineCount; ++i) {
           const item = data.items[randInt(0, cardinality.item - 1)];
           order.lines.push({
-            itemId: item.id,
+            itemId: item._id,
             quantity: 5,
-            supplyWarehouseId: warehouse.id,
+            supplyWarehouseId: warehouse._id,
             deliveryDate: o < 2101 ? order.entryDate : null,
             amount: o < 2101 ? 0 : randNumber(0.01, 9999.99, 0.01),
             districtInfo: randAlphaString(24, 24),
@@ -160,15 +144,22 @@ if (!data) {
     }
     for (const item of data.items) {
       const stock = {
-        itemId: item.id,
+        _id: `${warehouse._id}-${item._id}`,
+        warehouseId: warehouse._id,
+        itemId: item._id,
         quantity: randInt(10, 100),
         ytd: 0,
         orderCnt: 0,
         remoteOrderCnt: 0,
         data: randItemData(),
-        districtInfo: warehouse.districts.map(() => randAlphaString(24, 24)),
+        districts: warehouse.districts.map((x) => {
+          return {
+            _id: x._id,
+            info: randAlphaString(24, 24),
+          };
+        }),
       };
-      warehouse.stock.push(stock);
+      warehouse.stocks.push(stock);
     }
   }
   if (config.get('data.save')) {
@@ -177,11 +168,41 @@ if (!data) {
   }
   logger('data generated.');
 }
-await driver.loadData(driverConfig, driverConnection, data);
-logger('data loaded.');
 
-// run benchmarks
-logger('TODO: benchmarks finished.');
+// dynamically load driver module
+const driver = await import(`./drivers/${driverName}/driver.js`);
+logger('driver loaded.');
+
+// load driver config
+const driverConfig = JSON.parse(
+  fs.readFileSync(`./drivers/${driverName}/config.json`, 'utf8')
+);
+logger('driver config loaded.');
+
+// connect to the database
+const db = await driver.connect(driverConfig);
+logger('database connected.');
+
+// load the data into the database
+await driver.init(driverConfig, db);
+logger('database initialized.');
+await driver.loadData(driverConfig, db, data);
+logger('database loaded.');
+
+// TODO: run benchmarks
+await driver.doNewOrder(driverConfig, db, {
+  warehouseId: data.warehouses[0]._id,
+  districtId: data.warehouses[0].districts[0]._id,
+  customerId: data.warehouses[0].districts[0].customers[0]._id,
+  lines: [
+    {
+      itemId: data.items[0]._id,
+      quantity: 5,
+      supplyWarehouseId: data.warehouses[0]._id,
+    },
+  ],
+});
+logger('benchmarks finished.');
 
 // exit
 logger('done.');
