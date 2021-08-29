@@ -2,7 +2,19 @@ import random from 'random';
 import { nanoid } from 'nanoid';
 import config from 'config';
 
-const syllables = config.get('syllables');
+const syllables = [
+  "BAR",
+  "OUGHT",
+  "ABLE",
+  "PRI",
+  "PRES",
+  "ESE",
+  "ANTI",
+  "CALLY",
+  "ATION",
+  "EING"
+];
+
 const c_customerLastName = randInt(0, 255);
 const c_customerId = randInt(0, 1023);
 const c_orderLineItemId = randInt(0, 8191);
