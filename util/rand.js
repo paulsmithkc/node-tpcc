@@ -3,16 +3,16 @@ import { nanoid } from 'nanoid';
 import config from 'config';
 
 const syllables = [
-  "BAR",
-  "OUGHT",
-  "ABLE",
-  "PRI",
-  "PRES",
-  "ESE",
-  "ANTI",
-  "CALLY",
-  "ATION",
-  "EING"
+  'BAR',
+  'OUGHT',
+  'ABLE',
+  'PRI',
+  'PRES',
+  'ESE',
+  'ANTI',
+  'CALLY',
+  'ATION',
+  'EING',
 ];
 
 const c_customerLastName = randInt(0, 255);
@@ -22,7 +22,7 @@ const c_orderLineItemId = randInt(0, 8191);
 /**
  * Generates a random ID using nanoid.
  * This was chosen to reflect real world security practices.
- * 
+ *
  * @returns {string}
  */
 export function randId() {
@@ -84,7 +84,7 @@ export function randItemData() {
     const x = randInt(0, itemData.length - 8);
     itemData = itemData.slice(0, x) + 'ORIGINAL' + itemData.slice(x + 8);
   }
-  return itemData
+  return itemData;
 }
 
 /**
@@ -129,7 +129,7 @@ export function randInt(x, y) {
  * @param {number} y upper bound (exclusive)
  * @returns {number}
  */
- export function randFloat(x, y) {
+export function randFloat(x, y) {
   return random.float(x, y);
 }
 

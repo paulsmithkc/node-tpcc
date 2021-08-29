@@ -30,6 +30,7 @@ export async function loadData(config, db, data) {
   await db.collection('item').insertMany(items);
 
   const warehouses = [];
+  const districts = [];
   const customers = [];
   const stocks = [];
   for (const w of data.warehouses) {
@@ -44,23 +45,24 @@ export async function loadData(config, db, data) {
       'tax',
       'ytd',
     ]);
-    warehouse.districts = [];
     warehouses.push(warehouse);
 
     for (const d of w.districts) {
-      warehouse.districts.push(
-        _.pick(d, [
-          '_id',
-          'name',
-          'street1',
-          'street2',
-          'city',
-          'state',
-          'zip',
-          'tax',
-          'ytd',
-        ])
-      );
+      const district = _.pick(d, [
+        '_id',
+        'name',
+        'street1',
+        'street2',
+        'city',
+        'state',
+        'zip',
+        'tax',
+        'ytd',
+      ]);
+      // denormalize data needed for transactions
+      district.warehouse = _.pick(w, ['_id', 'name', 'tax']);
+      district.newOrders = d.newOrders;
+      districts.push(district);
 
       for (const c of d.customers) {
         const customer = c;
@@ -77,6 +79,7 @@ export async function loadData(config, db, data) {
   }
 
   await db.collection('warehouse').insertMany(warehouses);
+  await db.collection('district').insertMany(districts);
   await db.collection('customer').insertMany(customers);
   await db.collection('stock').insertMany(stocks);
 
@@ -90,6 +93,7 @@ export async function doNewOrder(
   { warehouseId, districtId, customerId, lines }
 ) {
   logger(`doNewOrder(${customerId})`);
+  const now = new Date();
 
   const [customer, items, stocks] = await Promise.all([
     db.collection('customer').findOne({ _id: { $eq: customerId } }),
@@ -105,25 +109,33 @@ export async function doNewOrder(
       .toArray(),
   ]);
   if (!customer) {
-    throw new Error(`customer ${customerId} not found.`);
-  }
-  // TODO: handle orders from another district (2.4.1.2)
-  if (customer.warehouse._id != warehouseId) {
-    throw new Error('customer is not in this warehouse.');
-  }
-  if (customer.district._id != districtId) {
-    throw new Error('customer is not in this district.');
+    throw new Error(`customer ${customerId} not found!`);
   }
 
-  // logger('customerId', customerId);
-  // logger('items', items.length);
-  // logger('items[0]', items[0]);
-  // logger('stocks', stocks.length);
-  // logger('stocks[0]', stocks[0]);
+  // Handle remote orders (2.4.1.2)
+  let warehouse = customer.warehouse;
+  let district = customer.district;
+  if (warehouseId != warehouse._id || districtId != district._id) {
+    [warehouse, district] = await Promise.all([
+      db
+        .collection('warehouse')
+        .findOne(
+          { _id: { $eq: warehouseId } },
+          { projection: { name: 1, tax: 1 } }
+        ),
+      db
+        .collection('district')
+        .findOne(
+          { _id: { $eq: districtId } },
+          { projection: { name: 1, tax: 1 } }
+        ),
+    ]);
+  }
 
+  const orderId = randId();
   const order = {
-    _id: randId(),
-    entryDate: new Date(),
+    _id: orderId,
+    entryDate: now,
     allLocal: true,
     lines: [],
   };
@@ -134,13 +146,13 @@ export async function doNewOrder(
     const itemId = line.itemId;
     const item = _.find(items, (x) => x._id == itemId);
     if (!item) {
-      throw new Error(`item ${itemId} not found.`);
+      throw new Error(`item ${itemId} not found!`);
     }
 
     const stockId = `${line.supplyWarehouseId}-${line.itemId}`;
     const stock = _.find(stocks, (x) => x._id == stockId);
     if (!stock) {
-      throw new Error(`stock ${stockId} not found.`);
+      throw new Error(`stock ${stockId} not found!`);
     }
 
     const amount = line.quantity * item.price;
@@ -179,7 +191,7 @@ export async function doNewOrder(
   }
 
   totalAmount *= 1 - customer.discount;
-  totalAmount *= 1 + customer.warehouse.tax + customer.district.tax;
+  totalAmount *= 1 + warehouse.tax + district.tax;
   logger('totalAmount', totalAmount);
 
   await Promise.all([
@@ -191,22 +203,140 @@ export async function doNewOrder(
         $push: { orders: order },
       }
     ),
+    db.collection('district').updateOne(
+      {
+        _id: { $eq: districtId },
+      },
+      {
+        $push: { newOrders: { customerId, orderId } },
+      }
+    ),
     db.collection('stock').bulkWrite(stockUpdates),
   ]);
 
   logger('doNewOrder.');
-  return { totalAmount };
+  return { orderId, totalAmount };
 }
 
 export async function doPayment(
   config,
   db,
-  { warehouseId, districtId, customer, amount }
+  { warehouseId, districtId, customerFilter, amount }
 ) {
   logger('doPayment()');
-  logger('customer', customer);
+  logger('customerFilter', customerFilter);
+  const now = new Date();
 
-  // TODO: implement payment
+  // Get the customer by ID or last name
+  // See 2.5.2.2
+  let customerQuery;
+  if (customerFilter._id) {
+    customerQuery = db
+      .collection('customer')
+      .findOne({ _id: { $eq: customerFilter._id } });
+  } else if (customerFilter.last) {
+    customerQuery = db
+      .collection('customer')
+      .find({ last: { $eq: customerFilter.last } })
+      .sort({ first: 1, _id: 1 })
+      .toArray()
+      .then((arr) => arr[arr.length >> 1]); // pick the middle entry
+  } else {
+    throw new Error('customer not selected!');
+  }
+
+  // Did we find a customer?
+  const customer = await customerQuery;
+  if (!customer) {
+    throw new Error(`customer not found!`);
+  }
+
+  // Handle remote payments (2.5.1.2)
+  let warehouse = customer.warehouse;
+  let district = customer.district;
+  if (warehouseId != warehouse._id || districtId != district._id) {
+    [warehouse, district] = await Promise.all([
+      db
+        .collection('warehouse')
+        .findOne(
+          { _id: { $eq: warehouseId } },
+          { projection: { name: 1, tax: 1 } }
+        ),
+      db
+        .collection('district')
+        .findOne(
+          { _id: { $eq: districtId } },
+          { projection: { name: 1, tax: 1 } }
+        ),
+    ]);
+  }
+
+  const customerId = customer._id;
+  let customerData = customer.data;
+
+  if (customer.credit == 'BC') {
+    customerData = `${customerId} ${customer.district._id} ${customer.warehouse._id} ${districtId} ${warehouseId} ${amount} | ${customer.data}`;
+    customerData = customerData.substring(0, 500);
+  }
+
+  await Promise.all([
+    db.collection('customer').updateOne(
+      { _id: { $eq: customerId } },
+      {
+        $set: {
+          data: customerData,
+        },
+        $inc: {
+          balance: -amount,
+          paymentYtd: amount,
+          paymentCnt: 1,
+        },
+        $push: {
+          history: {
+            warehouseId,
+            districtId,
+            amount,
+            date: now,
+            data: `${warehouse.name}    ${district.name}`,
+          },
+        },
+      }
+    ),
+    db.collection('warehouse').updateOne(
+      { _id: warehouseId },
+      {
+        $inc: {
+          ytd: amount,
+        },
+      }
+    ),
+    db.collection('district').updateOne(
+      { _id: districtId },
+      {
+        $inc: {
+          ytd: amount,
+        },
+      }
+    ),
+  ]);
 
   logger('doPayment.');
+  return { customerId };
+}
+
+export async function doDelivery(config, db, { warehouseId, carrier }) {
+  logger('doDelivery()');
+  const now = new Date();
+
+  const districts = await db
+    .collection('district')
+    .find({ 'warehouse._id': { $eq: warehouseId } })
+    .toArray();
+
+  for (const district of districts) {
+    // TODO: deliver the oldest order from each district
+  }
+
+  logger('doDelivery.');
+  return {};
 }

@@ -78,7 +78,7 @@ if (!data) {
         ytd: 30_000,
         customers: [],
         //nextOrderId: 3001 // page 66
-        //newOrders: [],
+        newOrders: [],
       };
       warehouse.districts.push(district);
       for (let c = 0; c < 3000; ++c) {
@@ -94,16 +94,18 @@ if (!data) {
           zip: randZipCode(),
           phone: randNumString(16, 16),
           since: new Date(),
-          credit: randInt,
+          credit: randFloat(0, 1) < 0.1 ? 'BC' : 'GC',
           creditLim: 50_000,
           discount: randNumber(0.0, 0.5, 0.0001),
           balance: -10,
-          ytd: 10,
+          paymentYtd: 10,
           paymentCnt: 1,
           deliveryCnt: 0,
           data: randAlphaString(300, 500),
           history: [
             {
+              warehouseId: warehouse._id,
+              districtId: district._id,
               date: new Date(),
               amount: 10,
               data: randAlphaString(12, 24),
@@ -115,15 +117,25 @@ if (!data) {
       }
       const shuffledCustomers = lodash.shuffle(district.customers);
       for (let o = 0; o < 3000; ++o) {
-        const customer = shuffledCustomers[o];
+        const isDelivered = o < 2101;
         const order = {
           _id: randId(),
           entryDate: new Date(),
-          carrier: o < 2101 ? randInt(1, 10) : null,
+          carrier: isDelivered ? randInt(1, 10) : null,
           allLocal: true,
           lines: [],
         };
+
+        const customer = shuffledCustomers[o];
         customer.orders.push(order);
+
+        if (!isDelivered) {
+          district.newOrders.push({
+            customerId: customer._id,
+            orderId: order._id,
+          });
+        }
+
         const lineCount = randInt(5, 15);
         for (let i = 0; i < lineCount; ++i) {
           const item = data.items[randInt(0, cardinality.item - 1)];
@@ -131,16 +143,12 @@ if (!data) {
             itemId: item._id,
             quantity: 5,
             supplyWarehouseId: warehouse._id,
-            deliveryDate: o < 2101 ? order.entryDate : null,
-            amount: o < 2101 ? 0 : randNumber(0.01, 9999.99, 0.01),
+            deliveryDate: isDelivered ? order.entryDate : null,
+            amount: isDelivered ? 0 : randNumber(0.01, 9999.99, 0.01),
             districtInfo: randAlphaString(24, 24),
           });
         }
       }
-      // for (let o = 2100; o < 3000; ++o) {
-      //   const order = districtOrders[o];
-      //   district.newOrders.push(order);
-      // }
     }
     for (const item of data.items) {
       const stock = {
@@ -206,6 +214,12 @@ await driver.doNewOrder(driverConfig, db, {
       supplyWarehouseId: data.warehouses[0]._id,
     },
   ],
+});
+await driver.doPayment(driverConfig, db, {
+  warehouseId: data.warehouses[0]._id,
+  districtId: data.warehouses[0].districts[0]._id,
+  customerFilter: { _id: data.warehouses[0].districts[0].customers[0]._id },
+  amount: 123,
 });
 logger('benchmarks finished.');
 
